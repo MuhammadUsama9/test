@@ -1,13 +1,48 @@
-name: my_pipeline
-run-name: ${{github.actor}} is learning github Actions
-on: [push]
+name: Deploy with Dynamic IP Access
+
+on:
+  push:
+    branches: [ main ]
+
 jobs:
-  check-bats-version:
+  access-aws:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # Required for OIDC
+      contents: read
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          node-version: '14'
-      - run: npm install -g bats
-      - run: bats -v
+          role-to-assume: arn:aws:iam::834701024232:role/testgithub
+          aws-region: us-east-1
+
+      - name: Get Runner IP
+        id: ip
+        uses: haythem/public-ip@v1.2
+
+      - name: Add Runner IP to Security Group
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id YOUR_SG_ID \
+            --protocol tcp \
+            --port 22 \   # or 3306 for DB, etc.
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
+
+      - name: Your Task (e.g., SSH, DB migration)
+        run: |
+          # Your commands here, e.g.:
+          # ssh -o StrictHostKeyChecking=no ec2-user@your-instance-ip "commands"
+
+      - name: Remove Runner IP (Cleanup)
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id YOUR_SG_ID \
+            --protocol tcp \
+            --port 22 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
