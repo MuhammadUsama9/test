@@ -1,9 +1,8 @@
 name: AWS Access with Dynamic IP Whitelist
 
 on:
-  workflow_dispatch:  # Run manually from GitHub UI
-  # push:
-  #   branches: [ main ]  # Uncomment to trigger on push
+  push:
+    branches: [ main ]
 
 jobs:
   access:
