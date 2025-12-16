@@ -1,48 +1,68 @@
-name: Deploy with Dynamic IP Access
+name: AWS Access with Dynamic IP Whitelist
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:      # Run manually from GitHub UI
+  # push:
+  #   branches: [ main ]  # Uncomment if you want it on push
 
 jobs:
-  access-aws:
+  access:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # Required for OIDC
-      contents: read
+      id-token: write      # Required for OIDC
+      contents: read       # Needed for checkout
 
     steps:
-      - name: Checkout
+      # 1. Checkout code (optional, only if you need files from repo)
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials (OIDC)
+      # 2. Configure AWS credentials via OIDC
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::834701024232:role/testgithub
-          aws-region: us-east-1
+          aws-region: us-east-1          # e.g., us-east-1, eu-west-1, etc.
 
+      # 3. Get the public IP of the GitHub Actions runner
       - name: Get Runner IP
         id: ip
         uses: haythem/public-ip@v1.2
 
+      # 4. Temporarily allow runner IP in your security group
       - name: Add Runner IP to Security Group
         run: |
           aws ec2 authorize-security-group-ingress \
             --group-id sg-05cfc24b819e093cd \
             --protocol tcp \
-            --port 22 \   # or 3306 for DB, etc.
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
+            --port 22 \                  # Change port if needed (22=SSH, 3306=MySQL, 5432=Postgres, etc.)
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32 \
+            --tag-specifications "ResourceType=security-group-rule,Tags=[{Key=GitHubRunner,Value=temporary}]"
 
-      - name: Your Task (e.g., SSH, DB migration)
+      # 5. === YOUR ACTUAL WORK GOES HERE ===
+      - name: Run your commands (example: SSH to EC2)
         run: |
-          # Your commands here, e.g.:
-          # ssh -o StrictHostKeyChecking=no ec2-user@your-instance-ip "commands"
+          echo "Runner IP ${{ steps.ip.outputs.ipv4 }} is now allowed"
+          
 
-      - name: Remove Runner IP (Cleanup)
+          
+      # 6. ALWAYS remove the rule (cleanup) - runs even if previous steps fail
+      - name: Remove Runner IP from Security Group
         if: always()
         run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id sg-05cfc24b819e093cd \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
+          # Find and revoke the rule we just added (using the tag we set)
+          RULE_ID=$(aws ec2 describe-security-group-rules \
+            --filters Name=group-id,Values=sg-05cfc24b819e093cd \
+                      Name=tag:GitHubRunner,Values=temporary \
+            --query "SecurityGroupRules[?isEgress==false].SecurityGroupRuleId" \
+            --output text)
+
+          if [ -n "$RULE_ID" ]; then
+            echo "Removing temporary rule $RULE_ID"
+            aws ec2 revoke-security-group-ingress --security-group-rule-ids $RULE_ID
+          else
+            echo "No temporary rule found (might have been cleaned already)"
+          fi
+
+
+          
