@@ -55,14 +55,16 @@ jobs:
         if: always()
         run: |
           RULE_ID=$(aws ec2 describe-security-group-rules \
-            --filters Name=group-id,Values=sg-05cfc24b819e093cd \
-                      Name=tag:GitHubRunner,Values=temporary \
-            --query "SecurityGroupRules[?isEgress==`false`].SecurityGroupRuleId" \
+            --filters "Name=group-id,Values=sg-05cfc24b819e093cd" \
+                      "Name=tag:GitHubRunner,Values=temporary" \
+            --query "SecurityGroupRules[?isEgress==\`false\`].SecurityGroupRuleId" \
             --output text)
 
           if [ -n "$RULE_ID" ]; then
-            echo "Removing temporary rule $RULE_ID"
-            aws ec2 revoke-security-group-ingress --security-group-rule-ids $RULE_ID --group-id sg-05cfc24b819e093cd
+            echo "Removing temporary rule: $RULE_ID"
+            aws ec2 revoke-security-group-ingress \
+              --security-group-rule-ids $RULE_ID \
+              --group-id sg-05cfc24b819e093cd
           else
             echo "No temporary rule found – already cleaned or not created"
           fi
